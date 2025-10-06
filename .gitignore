@@ -10,4 +10,6 @@ img/capture_plot_poly.png
 img/release_plot.png
 img/SIT.png
 img
-Data
+Data/ae_poly_data.xlsx
+Data/tetiaroa_all_data.csv
+Data/df_*.csv
