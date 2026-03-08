@@ -11,4 +11,4 @@ def competition1(K0, Kh, precip):
     return 1 / (K0 + Kh * precip)
 
 def allee(M, Ms):
-    return (0.1 *M + 0.01 *Ms) / (1 + 0.1 *M + 0.01 * Ms)
+    return (0.1 *M + 0.01 *Ms) / (10 + 0.1 *M + 0.01 * Ms)

@@ -145,14 +145,14 @@ def det_model_2(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi_mod,
     probaM = M / (M + Ms) if M > 0 else 0.0
     matf   = allee(M, Ms) * probaM
 
-    birth_mod  = birth * tel / (tel + death_egg)
+    birth_mod  = birth * tel * n_egg / (tel + death_egg)
     birth_rate = (-(death_L + tlp) + np.sqrt(
-                    (death_L + tlp)**2 + F * 4 * comp * birth_mod * n_egg
+                    (death_L + tlp)**2 + matf * F * 4 * comp * birth_mod / (allee(M, Ms) + deltaA)
                  )) / (2 * comp)
 
-    shared = matf * birth_rate * transi_mod / (2 * (allee(M, Ms) + deltaA))
+    shared = birth_rate * transi_mod / 2
 
-    dF = shared - deltaA * F
+    dF = shared * probaM - deltaA * F
     dM = shared - deltaA * 3 * M
 
     return np.array([dF, dM])
