@@ -187,3 +187,60 @@ def sim_2(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_mo
     # Reattach Ms for drop-in compatibility with 3-row outputs
     Ms_out = Ms_fun(days, release_times, rho, deltaA)
     return np.vstack([sol.y, Ms_out])
+
+
+def compute_P_exact(t_i, t_1, initial_state, params):
+    """
+    Exact analytical value of P(t) for the linear system (c = 0).
+
+    Parameters
+    ----------
+    t_i           : float – target time
+    t_1           : float – initial time
+    initial_state : list  – [F(t_1), E(t_1), L(t_1), P(t_1)]
+    params        : dict  – system parameters
+
+    Returns
+    -------
+    float : exact pupae population at t_i
+    """
+    F1, E1, L1, P1 = initial_state
+    dt = t_i - t_1
+
+    k_F = params['delta_F']
+    k_E = params['tau_E']  + params['delta_E']
+    k_L = params['tau_L']  + params['delta_L']
+    k_P = params['delta_P'] + params['tau_P']
+
+    tau_E = params['tau_E']
+    tau_L = params['tau_L']
+    beta  = params['beta']
+
+    # Prevent ZeroDivisionError when decay rates coincide
+    eps = 1e-10
+    if abs(k_E - k_F) < eps: k_E += eps
+    if abs(k_L - k_F) < eps: k_L += eps
+    if abs(k_L - k_E) < eps: k_L += eps * 2
+    if abs(k_P - k_F) < eps: k_P += eps
+    if abs(k_P - k_E) < eps: k_P += eps * 2
+    if abs(k_P - k_L) < eps: k_P += eps * 3
+
+    # E(t) coefficients
+    A_F = (beta * F1) / (k_E - k_F)
+    A_E = E1 - A_F
+
+    # L(t) coefficients
+    B_F = (tau_E * A_F) / (k_L - k_F)
+    B_E = (tau_E * A_E) / (k_L - k_E)
+    B_L = L1 - B_F - B_E
+
+    # P(t) coefficients
+    C_F = (tau_L * B_F) / (k_P - k_F)
+    C_E = (tau_L * B_E) / (k_P - k_E)
+    C_L = (tau_L * B_L) / (k_P - k_L)
+    C_P = P1 - C_F - C_E - C_L
+
+    return 1/2 * params['tau_P'] * (C_F * np.exp(-k_F * dt) +
+            C_E * np.exp(-k_E * dt) +
+            C_L * np.exp(-k_L * dt) +
+            C_P * np.exp(-k_P * dt))
