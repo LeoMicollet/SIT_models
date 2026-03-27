@@ -63,7 +63,7 @@ def compute_P_exact(t_i, t_1, initial_state, params):
 
     k_F = params['delta_F']
     k_E = params['tau_E']  + params['delta_E']
-    k_L = params['tau_L']  + params['delta_L'] + 0.001 * L1
+    k_L = params['tau_L']  + params['delta_L'] + 0.01 * L1
     k_P = params['delta_P'] + params['tau_P']
 
     tau_E = params['tau_E']
