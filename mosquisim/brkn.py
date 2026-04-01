@@ -126,14 +126,10 @@ def det_model_7(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi,
                 death_L, death_P, c, mu,
                 t_data, precip_data, H,
                 release_times, rho,          # ← release schedule
-                type=1, Sterile = 0):
+                type=1):
 
     E, L, P, F, Ff, Fs, M = y
-
-    if Sterile == 1:
-        Ms = rho if np.any(release_times) and t >= release_times[0] else 0.0
-    else:
-        Ms = Ms_fun(t, release_times, rho, deltaA)   # pure function call
+    Ms = Ms_fun(t, release_times, rho, deltaA)   # pure function call
 
     if type == 1:
         precip = np.interp(t, t_data, precip_data)
@@ -167,7 +163,7 @@ def det_model_7(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi,
 def sim_7(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_pa,
           death_L, death_P, c, mu,
           release_times=None, rho=0.0,
-          n_egg=64, precip_data=precip_data, H=hum_data, type=1, Sterile = 0):
+          n_egg=64, precip_data=precip_data, H=hum_data, type=1):
     """
     Parameters
     ----------
@@ -188,7 +184,7 @@ def sim_7(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_pa
             death_L, death_P, c, mu,
             time_data, precip_data, H,
             release_times, rho,
-            type, Sterile
+            type
         ),
         [days[0], days[-1]], y0,
         t_eval=days, method='LSODA', vectorized=False
@@ -208,15 +204,10 @@ def det_model_2(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi_mod,
                 t_data, precip_data, H,
                 release_times, rho,
                 residual_config=None,
-                type=1, Sterile = 0):
+                type=1):
 
     F, M = y
-
-    if Sterile == 1:
-        Ms = rho if np.any(release_times) and t >= release_times[0] else 0.0
-    else:
-        Ms = Ms_fun(t, release_times, rho, deltaA)   # pure function call
-
+    Ms = Ms_fun(t, release_times, rho, deltaA)   # same call, no ODE
 
     if type == 1:
         precip = np.interp(t, t_data, precip_data)
@@ -231,13 +222,10 @@ def det_model_2(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi_mod,
     matf   = allee(M, Ms) * probaM
 
     birth_mod  = birth * tel * n_egg / (tel + death_egg)
-    #birth_rate = (-(death_L + tlp) + np.sqrt(
-    #                (death_L + tlp)**2 + matf * F * 4 * comp * birth_mod / (allee(M, Ms) + deltaA)
-    #             )) / (2 * comp)
-
     birth_rate = (-(death_L + tlp) + np.sqrt(
-                    (death_L + tlp)**2 + matf * F * 4 * comp * birth_mod / (1 + deltaA)
+                    (death_L + tlp)**2 + matf * F * 4 * comp * birth_mod / (allee(M, Ms) + deltaA)
                  )) / (2 * comp)
+
     shared = birth_rate * transi_mod / 2
 
     female_res, male_res = 0.0, 0.0
@@ -249,7 +237,7 @@ def det_model_2(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi_mod,
             residual_config['params']
         )
 
-    dF = shared  - deltaA * F + female_res
+    dF = shared * probaM - deltaA * F + female_res
     dM = shared - deltaA * 3 * M + male_res
 
     return np.array([dF, dM])
@@ -258,7 +246,7 @@ def det_model_2(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi_mod,
 def sim_2(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_mod,
           death_L, c,
           release_times=None, rho=0.0,
-          n_egg=64, precip_data=precip_data, H=hum_data, type=1, Sterile = 0,
+          n_egg=64, precip_data=precip_data, H=hum_data, type=1,
           pre_release_pop_init_7d=None, transi_pa=None, death_P=None, mu=0.5):
     """
     pop_init               : length 2 (F, M) or 3 (Ms0 ignored — use releases)
@@ -367,7 +355,7 @@ def sim_2(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_mo
             time_data, precip_data, H,
             release_times, rho,
             residual_config,
-            type, Sterile
+            type
         ),
         [days[0], days[-1]], y0,
         t_eval=days, method='LSODA', vectorized=False
@@ -376,3 +364,53 @@ def sim_2(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_mo
     # Reattach Ms for drop-in compatibility with 3-row outputs
     Ms_out = Ms_fun(days, release_times, rho, deltaA)
     return np.vstack([sol.y, Ms_out])
+
+
+# New reduced model: bootstrap from 7D state at first release
+sol3_new = sim_2(
+    pop_init=init_3, days=days,
+    birth=p["birth"], deltaA=p["deltaA"], deltaE=p["deltaE"],
+    transi_el=p["transi_el"], transi_lp=p["transi_lp"], transi_mod=p["transi_mod"],
+    death_L=p["death_L"],
+    c=p["c"], n_egg=p["n_egg"],
+    release_times=release_times, rho=rho,
+    precip_data=precip_data, H=hum_data,
+    pre_release_pop_init_7d=init_8,
+    transi_pa=p["transi_pa"], death_P=p["death_P"], mu=p["mu"],
+    type = 3
+)
+
+
+#  Pre-release adult input 
+first_release = float(release_times[0])
+idx_rel = int(np.searchsorted(days, first_release))
+E0, L0, P0, F0, Ff0, Fs0, M0 = sol8[:7, idx_rel]
+
+params_residual = {
+    'delta_F': p["deltaA"],
+    'tau_E':   p["transi_el"],
+    'delta_E': p["deltaE"],
+    'tau_L':   p["transi_lp"],
+    'delta_L': p["death_L"],
+    'tau_P':   p["transi_pa"],
+    'delta_P': p["death_P"],
+    'beta':    p["n_egg"] * p["birth"],
+    'mu':      p["mu"],
+}
+initial_state_residual = [Ff0, E0, L0, P0]
+
+post_days = days[days >= first_release]
+f_flux = np.array([pre_release_adult_input(t, first_release, initial_state_residual, params_residual)[0] for t in post_days])
+m_flux = np.array([pre_release_adult_input(t, first_release, initial_state_residual, params_residual)[1] for t in post_days])
+
+fig, ax = plt.subplots(1, 1, figsize=(11, 4))
+ax.plot(post_days, f_flux , label="female flux", color="tab:blue")
+ax.plot(post_days, m_flux , label="male flux", color="tab:red")
+ax.axvline(first_release, color="k", linestyle=":", linewidth=1.0, label="first release")
+ax.set_title("Pre-release adult input (residual cohort emergence)")
+ax.set_xlabel("Day")
+ax.set_ylabel("Adult flux (individuals/day)")
+ax.legend()
+plt.tight_layout()
+plt.savefig("pre_release_input.png", dpi=150)
+plt.show()
