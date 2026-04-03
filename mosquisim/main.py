@@ -20,11 +20,12 @@ init_3 = [16000, 5300]                        # F, M
 #release_times = None
 release_times = [200]
 #release_times = np.arange(400, 365+140, 7)
-rho = 5000
+rho = 50000
 
 p = params.params   # shorthand
 delay = 1/(p["transi_pa"]+ p["death_P"]) + 1/(p["transi_lp"] + p["death_L"]) + 1/(p["transi_el"] + p["deltaE"])
 delay = 4*( 1/(p["transi_pa"]) + 1/(p["transi_lp"]) * (init_8[0] + init_8[1])/(init_8[0] + init_8[1] + init_8[2]) + 1/(p["transi_el"])* (init_8[0])/(init_8[0] + init_8[1] + init_8[2]))
+delay = 100
 
 if release_times is not None:
     release_delay = release_times[0] + delay
@@ -40,7 +41,7 @@ sol8 = sim_7(
     c=p["c"], mu=p["mu"], n_egg=p["n_egg"],
     release_times=release_times, rho=rho,
     precip_data=precip_data, H=hum_data, 
-    type = 3, Sterile = 1
+    type = 3, Sterile = 0
 )
 
 # New reduced model: bootstrap from 7D state at first release
@@ -50,9 +51,9 @@ sol3_new = sim_2(
     transi_el=p["transi_el"], transi_lp=p["transi_lp"], transi_mod=p["transi_mod"],
     death_L=p["death_L"],
     c=p["c"], n_egg=p["n_egg"],
-    release_times=[release_delay], rho=rho,
+    release_times=release_times, rho=rho,
     precip_data=precip_data, H=hum_data,
-    type = 3, Sterile = 1
+    reltype = 3, Sterile = 0
 )
 
 # Old reduced model: no 7D bootstrap at first release
@@ -64,7 +65,7 @@ sol3_old = sim_2(
     c=p["c"], n_egg=p["n_egg"],
     release_times=release_times, rho=rho,
     precip_data=precip_data, H=hum_data,
-    type = 3, Sterile = 1
+    reltype = 3, Sterile = 0
 )
 
 print(sol8[:, -1])
@@ -119,7 +120,7 @@ plt.show()
 
 # Zoom around first release for easier visual validation
 zoom_left = max(days[0], release_times[0] - 30)
-zoom_right = min(days[-1], release_times[0] + 200)
+zoom_right = min(days[-1], release_times[0] + 500)
 mask = (days >= zoom_left) & (days <= zoom_right)
 fig, axes = plt.subplots(2, 1, figsize=(11, 8))
 
@@ -144,31 +145,4 @@ ax.legend()
 
 plt.tight_layout()
 plt.savefig("old_new_zoom.png", dpi=150)
-plt.show()
-
-#  Old vs New reduced model comparison 
-fig, axes = plt.subplots(2, 1, figsize=(11, 8), sharex=True)
-
-ax = axes[0]
-ax.plot(days, sol3_old[0], label="F old", color="tab:blue", alpha=0.8)
-ax.plot(days, sol3_new[0], label="F new", color="tab:blue", linestyle="--", linewidth=1.8)
-ax.plot(days, sol3_old[1], label="M old", color="tab:red", alpha=0.8)
-ax.plot(days, sol3_new[1], label="M new", color="tab:red", linestyle="--", linewidth=1.8)
-ax.axvline(release_times[0], color="k", linestyle=":", linewidth=1.0, label="first release")
-ax.set_title("Old vs New reduced model")
-ax.set_ylabel("Population")
-ax.legend(ncol=3)
-
-ax = axes[1]
-ax.plot(days, sol3_new[0] - sol3_old[0], label="ΔF (new-old)", color="tab:blue")
-ax.plot(days, sol3_new[1] - sol3_old[1], label="ΔM (new-old)", color="tab:red")
-ax.axhline(0, color="k", linewidth=0.7, linestyle="--")
-ax.axvline(release_times[0], color="k", linestyle=":", linewidth=1.0)
-ax.set_title("Difference between new and old reduced model")
-ax.set_xlabel("Day")
-ax.set_ylabel("Population difference")
-ax.legend()
-
-plt.tight_layout()
-plt.savefig("old_new_compare.png", dpi=150)
 plt.show()

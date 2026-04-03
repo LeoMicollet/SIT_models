@@ -414,3 +414,31 @@ ax.legend()
 plt.tight_layout()
 plt.savefig("pre_release_input.png", dpi=150)
 plt.show()
+
+
+#  Old vs New reduced model comparison 
+fig, axes = plt.subplots(2, 1, figsize=(11, 8), sharex=True)
+
+ax = axes[0]
+ax.plot(days, sol3_old[0], label="F old", color="tab:blue", alpha=0.8)
+ax.plot(days, sol3_new[0], label="F new", color="tab:blue", linestyle="--", linewidth=1.8)
+ax.plot(days, sol3_old[1], label="M old", color="tab:red", alpha=0.8)
+ax.plot(days, sol3_new[1], label="M new", color="tab:red", linestyle="--", linewidth=1.8)
+ax.axvline(release_times[0], color="k", linestyle=":", linewidth=1.0, label="first release")
+ax.set_title("Old vs New reduced model")
+ax.set_ylabel("Population")
+ax.legend(ncol=3)
+
+ax = axes[1]
+ax.plot(days, sol3_new[0] - sol3_old[0], label="ΔF (new-old)", color="tab:blue")
+ax.plot(days, sol3_new[1] - sol3_old[1], label="ΔM (new-old)", color="tab:red")
+ax.axhline(0, color="k", linewidth=0.7, linestyle="--")
+ax.axvline(release_times[0], color="k", linestyle=":", linewidth=1.0)
+ax.set_title("Difference between new and old reduced model")
+ax.set_xlabel("Day")
+ax.set_ylabel("Population difference")
+ax.legend()
+
+plt.tight_layout()
+plt.savefig("old_new_compare.png", dpi=150)
+plt.show()

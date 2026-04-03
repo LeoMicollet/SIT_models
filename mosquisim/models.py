@@ -207,8 +207,7 @@ def det_model_2(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi_mod,
                 death_L, c,
                 t_data, precip_data, H,
                 release_times, rho,
-                residual_config=None,
-                type=1, Sterile = 0):
+                reltype=1, Sterile = 0):
 
     F, M = y
 
@@ -218,16 +217,17 @@ def det_model_2(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi_mod,
         Ms = Ms_fun(t, release_times, rho, deltaA)   # pure function call
 
 
-    if type == 1:
+    if reltype == 1:
         precip = np.interp(t, t_data, precip_data)
         comp = competition1(1/c, 1/(c * 50), precip)
-    elif type == 2:
+    elif reltype == 2:
         water = np.interp(t, t_data, H)
         comp = 1 / ((1 / (0.2 * c)) * (water / max_rain) + 1/(5 * c))
     else:
         comp = c
 
     probaM = M / (M + Ms) if M > 0 else 0.0
+    
     matf   = allee(M, Ms) * probaM
 
     birth_mod  = birth * tel * n_egg / (tel + death_egg)
@@ -240,26 +240,16 @@ def det_model_2(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi_mod,
                  )) / (2 * comp)
     shared = birth_rate * transi_mod / 2
 
-    female_res, male_res = 0.0, 0.0
-    if residual_config is not None:
-        female_res, male_res = pre_release_adult_input(
-            t,
-            residual_config['transition_time'],
-            residual_config['initial_state'],
-            residual_config['params']
-        )
-
-    dF = shared  - deltaA * F + female_res
-    dM = shared - deltaA * 3 * M + male_res
+    dF = shared  - deltaA * F
+    dM = shared - deltaA * 3 * M
 
     return np.array([dF, dM])
 
 
 def sim_2(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_mod,
           death_L, c,
-          release_times=None, rho=0.0,
-          n_egg=64, precip_data=precip_data, H=hum_data, type=1, Sterile = 0,
-          pre_release_pop_init_7d=None, transi_pa=None, death_P=None, mu=0.5):
+          release_times = None, rho=0.0,
+          n_egg=64, precip_data = precip_data, H = hum_data, reltype = 1, Sterile = 0):
     """
     pop_init               : length 2 (F, M) or 3 (Ms0 ignored — use releases)
     pre_release_pop_init_7d: optional 7D initial state used to bootstrap the
@@ -268,96 +258,11 @@ def sim_2(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_mo
     if release_times is None:
         release_times = np.array([])
         rho = 0.0
+        print("No releases")
     else:
         release_times = np.asarray(release_times, dtype=float)
 
     y0 = np.asarray(pop_init[:2], dtype=float)
-    residual_config = None
-
-    in_window_releases = release_times[
-        (release_times >= days[0]) & (release_times <= days[-1])
-    ]
-
-    if pre_release_pop_init_7d is not None and in_window_releases.size > 0:
-        if transi_pa is None or death_P is None:
-            raise ValueError(
-                "transi_pa and death_P are required when pre_release_pop_init_7d is provided."
-            )
-
-        first_release = float(in_window_releases[0])
-
-        if first_release == days[0]:
-            pre_release_state = np.asarray(pre_release_pop_init_7d[:7], dtype=float)
-            pre_F = np.array([], dtype=float)
-            pre_M = np.array([], dtype=float)
-        else:
-            pre_days = np.asarray(days[days < first_release], dtype=float)
-            pre_t_eval = np.append(pre_days, first_release)
-
-            pre_sol = solve_ivp(
-                lambda t, y: det_model_7(
-                    t, y, birth, n_egg, deltaA, deltaE,
-                    transi_el, transi_lp, transi_pa,
-                    death_L, death_P, c, mu,
-                    time_data, precip_data, H,
-                    np.array([]), 0.0,
-                    type
-                ),
-                [days[0], first_release],
-                np.asarray(pre_release_pop_init_7d[:7], dtype=float),
-                t_eval=pre_t_eval,
-                method='LSODA',
-                vectorized=False
-            )
-
-            pre_release_state = pre_sol.y[:, -1]
-            pre_F = pre_sol.y[3, :-1] + pre_sol.y[4, :-1] + pre_sol.y[5, :-1]
-            pre_M = pre_sol.y[6, :-1]
-
-        E0, L0, P0, F0, Ff0, Fs0, M0 = pre_release_state
-        y0 = np.array([F0 + Ff0 + Fs0, M0], dtype=float)
-        residual_config = {
-            'transition_time': first_release,
-            'initial_state': [Ff0, E0, L0, P0],
-            'params': {
-                'delta_F': deltaA,
-                'tau_E': transi_el,
-                'delta_E': deltaE,
-                'tau_L': transi_lp,
-                'delta_L': death_L,
-                'tau_P': transi_pa,
-                'delta_P': death_P,
-                'beta': n_egg * birth,
-                'mu': mu,
-            },
-        }
-
-        post_days = np.asarray(days[days >= first_release], dtype=float)
-
-        if post_days.size == 1 and post_days[0] == first_release:
-            post_F = np.array([y0[0]])
-            post_M = np.array([y0[1]])
-        else:
-            sol = solve_ivp(
-                lambda t, y: det_model_2(
-                    t, y, birth, n_egg, deltaA, deltaE,
-                    transi_el, transi_lp, transi_mod,
-                    death_L, c,
-                    time_data, precip_data, H,
-                    release_times, rho,
-                    residual_config,
-                    type
-                ),
-                [post_days[0], post_days[-1]], y0,
-                t_eval=post_days, method='LSODA', vectorized=False
-            )
-            post_F = sol.y[0]
-            post_M = sol.y[1]
-
-        F_out = np.concatenate([pre_F, post_F])
-        M_out = np.concatenate([pre_M, post_M])
-        Ms_out = Ms_fun(days, release_times, rho, deltaA)
-        return np.vstack([F_out, M_out, Ms_out])
 
     sol = solve_ivp(
         lambda t, y: det_model_2(
@@ -365,9 +270,7 @@ def sim_2(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_mo
             transi_el, transi_lp, transi_mod,
             death_L, c,
             time_data, precip_data, H,
-            release_times, rho,
-            residual_config,
-            type, Sterile
+            release_times, rho, reltype, Sterile
         ),
         [days[0], days[-1]], y0,
         t_eval=days, method='LSODA', vectorized=False
