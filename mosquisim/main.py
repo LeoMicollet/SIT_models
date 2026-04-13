@@ -25,7 +25,7 @@ rho = 50000
 p = params.params   # shorthand
 delay = 1/(p["transi_pa"]+ p["death_P"]) + 1/(p["transi_lp"] + p["death_L"]) + 1/(p["transi_el"] + p["deltaE"])
 delay = 4*( 1/(p["transi_pa"]) + 1/(p["transi_lp"]) * (init_8[0] + init_8[1])/(init_8[0] + init_8[1] + init_8[2]) + 1/(p["transi_el"])* (init_8[0])/(init_8[0] + init_8[1] + init_8[2]))
-delay = 100
+delay = 1/(p["transi_pa"]) + 1/(p["transi_lp"] ) + 1/(p["transi_el"])
 
 if release_times is not None:
     release_delay = release_times[0] + delay
@@ -51,7 +51,7 @@ sol3_new = sim_2(
     transi_el=p["transi_el"], transi_lp=p["transi_lp"], transi_mod=p["transi_mod"],
     death_L=p["death_L"],
     c=p["c"], n_egg=p["n_egg"],
-    release_times=release_times, rho=rho,
+    release_times=release_delay, rho=rho,
     precip_data=precip_data, H=hum_data,
     reltype = 3, Sterile = 0
 )

@@ -125,7 +125,7 @@ def pre_release_adult_input(t, transition_time, initial_state, params):
 def det_model_7(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi,
                 death_L, death_P, c, mu,
                 t_data, precip_data, H,
-                release_times, rho,          # ← release schedule
+                release_times, rho,          # release schedule
                 type=1, Sterile = 0):
 
     E, L, P, F, Ff, Fs, M = y
@@ -210,13 +210,17 @@ def det_model_2(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi_mod,
                 reltype=1, Sterile = 0):
 
     F, M = y
+    F = max(F, 0.0)   #  guard against small negative drift from LSODA
+    M = max(M, 0.0)
+    print(t)
 
+    # ── Ms ────────────────────────────────────────────────────────
     if Sterile == 1:
         Ms = rho if np.any(release_times) and t >= release_times[0] else 0.0
     else:
-        Ms = Ms_fun(t, release_times, rho, deltaA)   # pure function call
+        Ms = Ms_fun(t, release_times, rho, deltaA)
 
-
+    # ── Competition ───────────────────────────────────────────────
     if reltype == 1:
         precip = np.interp(t, t_data, precip_data)
         comp = competition1(1/c, 1/(c * 50), precip)
@@ -226,56 +230,78 @@ def det_model_2(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi_mod,
     else:
         comp = c
 
-    probaM = M / (M + Ms) if M > 0 else 0.0
-    
+    # ── Mating ────────────────────────────────────────────────────
+    if M > 0:
+        probaM  = M  / (M + Ms)
+    else:
+        probaM = 0.0
+
     matf   = allee(M, Ms) * probaM
 
-    birth_mod  = birth * tel * n_egg / (tel + death_egg)
-    #birth_rate = (-(death_L + tlp) + np.sqrt(
-    #                (death_L + tlp)**2 + matf * F * 4 * comp * birth_mod / (allee(M, Ms) + deltaA)
-    #             )) / (2 * comp)
+    # ── Birth rate (quasi-steady-state larvae) ────────────────────
+    birth_mod = birth * tel * n_egg / (tel + death_egg)
 
-    birth_rate = (-(death_L + tlp) + np.sqrt(
-                    (death_L + tlp)**2 + matf * F * 4 * comp * birth_mod / (1 + deltaA)
-                 )) / (2 * comp)
+    discriminant = (death_L + tlp)**2 + matf * F * 4 * comp * birth_mod / (1 + deltaA)
+    discriminant = max(discriminant, 0.0)   # numerical safety
+
+    birth_rate = (-(death_L + tlp) + np.sqrt(discriminant)) / (2 * comp)
+
     shared = birth_rate * transi_mod / 2
 
-    dF = shared  - deltaA * F
+    dF = shared - deltaA * F
     dM = shared - deltaA * 3 * M
 
     return np.array([dF, dM])
 
-
 def sim_2(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_mod,
           death_L, c,
-          release_times = None, rho=0.0,
-          n_egg=64, precip_data = precip_data, H = hum_data, reltype = 1, Sterile = 0):
-    """
-    pop_init               : length 2 (F, M) or 3 (Ms0 ignored — use releases)
-    pre_release_pop_init_7d: optional 7D initial state used to bootstrap the
-                             reduced model at the first release time
-    """
+          release_times=None, rho=0.0,
+          n_egg=64, precip_data=precip_data, H=hum_data, reltype=1, Sterile=0):
+
     if release_times is None:
         release_times = np.array([])
         rho = 0.0
-        print("No releases")
     else:
         release_times = np.asarray(release_times, dtype=float)
+        release_times = release_times[(release_times > days[0]) & (release_times < days[-1])]
 
     y0 = np.asarray(pop_init[:2], dtype=float)
 
-    sol = solve_ivp(
-        lambda t, y: det_model_2(
-            t, y, birth, n_egg, deltaA, deltaE,
-            transi_el, transi_lp, transi_mod,
-            death_L, c,
-            time_data, precip_data, H,
-            release_times, rho, reltype, Sterile
-        ),
-        [days[0], days[-1]], y0,
-        t_eval=days, method='LSODA', vectorized=False
-    )
+    # Split integration at each release time so LSODA cannot jump over them
+    breakpoints = np.concatenate([[days[0]], release_times, [days[-1]]])
 
-    # Reattach Ms for drop-in compatibility with 3-row outputs
-    Ms_out = Ms_fun(days, release_times, rho, deltaA)
-    return np.vstack([sol.y, Ms_out])
+    t_all, y_all = [], []
+    for k in range(len(breakpoints) - 1):
+        t_start = breakpoints[k]
+        t_end   = breakpoints[k + 1]
+
+        # ← only change: strict > for all segments except the first
+        if k == 0:
+            t_seg = days[(days >= t_start) & (days <= t_end)]
+        else:
+            t_seg = days[(days > t_start) & (days <= t_end)]
+
+        if len(t_seg) == 0:
+            continue
+
+        sol = solve_ivp(
+            lambda t, y: det_model_2(
+                t, y, birth, n_egg, deltaA, deltaE,
+                transi_el, transi_lp, transi_mod,
+                death_L, c,
+                time_data, precip_data, H,
+                release_times, rho, reltype, Sterile
+            ),
+            [t_start, t_end], y0,
+            t_eval=t_seg, method='LSODA', vectorized=False
+        )
+
+        t_all.append(sol.t)
+        y_all.append(sol.y)
+        y0 = sol.y[:, -1].copy()
+
+    t_out = np.concatenate(t_all)
+    y_out = np.hstack(y_all)
+
+    Ms_out = Ms_fun(t_out, release_times, rho, deltaA)
+    return np.vstack([y_out, Ms_out])
