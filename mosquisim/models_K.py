@@ -42,11 +42,87 @@ def Ms_fun(t, release_times, rho, deltaA):
 
     return Ms[0] if scalar_input else Ms
 
+
+def compute_P_exact(t_i, t_1, initial_state, params):
+    """
+    Exact analytical value of P(t) for the linear system (c = 0).
+
+    Parameters
+    ----------
+    t_i           : float – target time
+    t_1           : float – initial time
+    initial_state : list  – [F(t_1), E(t_1), L(t_1), P(t_1)]
+    params        : dict  – system parameters
+
+    Returns
+    -------
+    float : exact pupae population at t_i
+    """
+    F1, E1, L1, P1 = initial_state
+    dt = t_i - t_1
+
+    k_F = params['delta_F']
+    k_E = params['tau_E']  + params['delta_E']
+    k_L = params['tau_L']  + params['delta_L'] + 0.01 * L1
+    k_P = params['delta_P'] + params['tau_P']
+
+    tau_E = params['tau_E']
+    tau_L = params['tau_L']
+    beta  = params['beta']
+
+    # Prevent ZeroDivisionError when decay rates coincide
+    eps = 1e-10
+    if abs(k_E - k_F) < eps: k_E += eps
+    if abs(k_L - k_F) < eps: k_L += eps
+    if abs(k_L - k_E) < eps: k_L += eps * 2
+    if abs(k_P - k_F) < eps: k_P += eps
+    if abs(k_P - k_E) < eps: k_P += eps * 2
+    if abs(k_P - k_L) < eps: k_P += eps * 3
+
+    # E(t) coefficients
+    A_F = (beta * F1) / (k_E - k_F)
+    A_E = E1 - A_F
+
+    # L(t) coefficients
+    B_F = (tau_E * A_F) / (k_L - k_F)
+    B_E = (tau_E * A_E) / (k_L - k_E)
+    B_L = L1 - B_F - B_E
+
+    # P(t) coefficients
+    C_F = (tau_L * B_F) / (k_P - k_F)
+    C_E = (tau_L * B_E) / (k_P - k_E)
+    C_L = (tau_L * B_L) / (k_P - k_L)
+    C_P = P1 - C_F - C_E - C_L
+
+    return 1/2 * params['tau_P'] * (C_F * np.exp(-k_F * dt) +
+            C_E * np.exp(-k_E * dt) +
+            C_L * np.exp(-k_L * dt) +
+            C_P * np.exp(-k_P * dt))
+
+
+def pre_release_adult_input(t, transition_time, initial_state, params):
+    """
+    Adult input generated after the first release by the cohorts present in the
+    7D model right before that release.
+
+    `compute_P_exact` returns half of the adult emergence rate, so we convert it
+    back to the total flux and split it according to `mu`.
+    """
+    if transition_time is None or t < transition_time:
+        return 0.0, 0.0
+
+    shared_half_flux = compute_P_exact(t, transition_time, initial_state, params)
+    total_flux = 2.0 * shared_half_flux
+
+    female_flux = params['mu'] * total_flux
+    male_flux = (1.0 - params['mu']) * total_flux
+    return female_flux, male_flux
+
 # ─────────────────────────────────────────────────────────────────
 # 7-dim population model  (Ms injected analytically)
 # ─────────────────────────────────────────────────────────────────
 
-def det_model_7(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi,
+def det_model_K7(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi,
                 death_L, death_P, c, mu,
                 t_data, precip_data, H,
                 release_times, rho,          # release schedule
@@ -77,8 +153,8 @@ def det_model_7(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi,
     matf = allee(M, Ms) * probaM
     mats = allee(M, Ms) * probaMs
 
-    dE  = n_egg * birth * Ff - death_egg * E - tel * E
-    dL  = tel * E - tlp * L - death_L * L - comp * L**2
+    dE  = n_egg * birth * Ff * (1 - E*comp) - death_egg * E - tel * E
+    dL  = tel * E - tlp * L - death_L * L
     dP  = tlp * L - (transi + death_P) * P
     dF  = mu * transi * P - (matf + mats + deltaA) * F
     dFf = matf * F - deltaA * Ff
@@ -88,7 +164,7 @@ def det_model_7(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi,
     return np.array([dE, dL, dP, dF, dFf, dFs, dM])
 
 
-def sim_7(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_pa,
+def sim_K7(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_pa,
           death_L, death_P, c, mu,
           release_times=None, rho=0.0,
           n_egg=64, precip_data=precip_data, H=hum_data, type=1, Sterile = 0):
@@ -106,7 +182,7 @@ def sim_7(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_pa
     y0 = np.asarray(pop_init[:7], dtype=float)
 
     sol = solve_ivp(
-        lambda t, y: det_model_7(
+        lambda t, y: det_model_K7(
             t, y, birth, n_egg, deltaA, deltaE,
             transi_el, transi_lp, transi_pa,
             death_L, death_P, c, mu,
@@ -122,11 +198,12 @@ def sim_7(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_pa
     Ms_out = Ms_fun(days, release_times, rho, deltaA)
     return np.vstack([sol.y, Ms_out])
 
+
 # ─────────────────────────────────────────────────────────────────
 # 2-dim reduced model  (Ms injected analytically, same pattern)
 # ─────────────────────────────────────────────────────────────────
 
-def det_model_2(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi_mod,
+def det_model_K2(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, tpa, transi_mod,
                 death_L, c,
                 t_data, precip_data, H,
                 release_times, rho,
@@ -161,26 +238,20 @@ def det_model_2(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi_mod,
 
     matf   = allee(M, Ms) * probaM
 
-    # ── Birth rate (quasi-steady-state larvae) ────────────────────
-    birth_mod = birth * tel * n_egg / (tel + death_egg)
+    # ── Birth rate (quasi-steady-state egg) ────────────────────
 
-    discriminant = (death_L + tlp)**2 + matf * F * 4 * comp * birth_mod / (1 + deltaA)
-    discriminant = max(discriminant, 0.0)   # numerical safety
+    birth_rate = (tel * transi_mod / (tlp + death_L)) * n_egg * (birth**2) * matf * ((F**2 )/ (matf + tpa)) / (n_egg * birth * matf * (F/ (matf + tpa)) * comp + death_egg + tel)
+    deltaFup = deltaA * delta/(deltaA + delta)
+    deltaMup = 3 * deltaA * delta/( 3 * deltaA + delta)
 
-    birth_rate = (-(death_L + tlp) + np.sqrt(discriminant)) / (2 * comp)
-
-    shared = birth_rate * transi_mod / 2
-    deltaFup = deltaA #* delta/(deltaA + delta)
-    deltaMup = 3 * deltaA #* delta/( 3 * deltaA + delta)
-
-    #shared = birth_rate / 4
+    shared = birth_rate / 4
 
     dF = shared - deltaFup * F
-    dM = shared - deltaMup *  M
+    dM = shared - deltaMup * 3 * M
 
     return np.array([dF, dM])
 
-def sim_2(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_mod,
+def sim_K2(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, tpa, transi_mod,
           death_L, c,
           release_times=None, rho=0.0,
           n_egg=64, precip_data=precip_data, H=hum_data, reltype=1, Sterile=0, delta = 0):
@@ -212,9 +283,9 @@ def sim_2(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_mo
             continue
 
         sol = solve_ivp(
-            lambda t, y: det_model_2(
+            lambda t, y: det_model_K2(
                 t, y, birth, n_egg, deltaA, deltaE,
-                transi_el, transi_lp, transi_mod,
+                transi_el, transi_lp, tpa, transi_mod,
                 death_L, c,
                 time_data, precip_data, H,
                 release_times, rho, reltype, Sterile, delta
