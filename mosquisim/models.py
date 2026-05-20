@@ -232,3 +232,144 @@ def sim_2(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp, transi_mo
 
     Ms_out = Ms_fun(t_out, release_times, rho, deltaA)
     return np.vstack([y_out, Ms_out])
+
+def det_model_2_corrected(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi_mod,
+                           death_L, c, epsilon,
+                           t_data, precip_data, H,
+                           release_times, rho,
+                           reltype=1, Sterile=0):
+    """
+    Reduced model with first-order Fenichel correction.
+    The corrected pupal equilibrium is:
+        P(t) ≈ P*(Ff) - epsilon * dP*/dFf * dFf/dt
+    """
+
+    F, M = y
+    F = max(F, 0.0)
+    M = max(M, 0.0)
+
+    # ── Ms ────────────────────────────────────────────────────────
+    if Sterile == 1:
+        release_times = np.atleast_1d(np.asarray(release_times, dtype=float))
+        Ms = float(rho) if (len(release_times) > 0 and t >= release_times[0]) else 0.0
+    else:
+        Ms = Ms_fun(t, release_times, rho, deltaA)
+
+    # ── Competition ───────────────────────────────────────────────
+    if reltype == 1:
+        precip = np.interp(t, t_data, precip_data)
+        comp = competition1(1/c, 1/(c * 50), precip)
+    elif reltype == 2:
+        water = np.interp(t, t_data, H)
+        comp = 1 / ((1 / (0.2 * c)) * (water / max_rain) + 1/(5 * c))
+    else:
+        comp = c
+
+    # ── Mating probabilities ──────────────────────────────────────
+    total = M + Ms
+    probaM = M / total if total > 0.0 else 0.0
+    matf   = allee(M, Ms) * probaM
+
+    # ── Birth modifier ────────────────────────────────────────────
+    birth_mod = birth * tel * n_egg / (tel + death_egg)
+
+    # ── QSSA equilibrium: P*(F) ───────────────────────────────────
+    # birth_rate = quasi-steady larvae = L* satisfying comp*L^2 + (dL+tlp)*L - matf*F*birth_mod = 0
+    # Then P* = tlp * L* / (transi_pa + death_P)  — but here transi_mod already
+    # encodes tlp * transi_pa / ((dL+tlp)(transi_pa+dP)), so:
+    #   shared  = birth_rate * transi_mod / 2
+    #   P*      = birth_rate * tlp / (transi_pa + death_P)   [not needed explicitly]
+    # We only need dP*/dFf which we compute via dL*/dFf below.
+
+    disc  = max((death_L + tlp)**2 + matf * F * 4 * comp * birth_mod / (1 + deltaA), 0.0)
+    L_star        = max((-(death_L + tlp) + np.sqrt(disc)) / (2 * comp), 0.0)
+
+    # ── dL*/dF  (analytical derivative of L* w.r.t. F) ───────────
+    # L* = [ -(dL+tlp) + sqrt( (dL+tlp)^2 + 4*comp*birth_mod*matf/(1+dA) * F ) ] / (2*comp)
+    # d(L*)/dF = [ matf * birth_mod / (1+dA) ] / [ comp * sqrt(disc) ]   if disc > 0
+    if disc > 1e-12:
+        dLstar_dF = (matf * birth_mod / (1 + deltaA)) / (comp * np.sqrt(disc))
+    else:
+        dLstar_dF = 0.0
+
+    # P* = tlp * L* / (transi_mod_pa + death_P)
+    # Since transi_mod already bundles several rates, we express P* correction
+    # directly through L*:  the adult emergence flux = transi_mod * L* / 2
+    # => dP*/dF = tlp * dL*/dF / (transi_pa + death_P)
+    # But because transi_mod = tlp*transi_pa/((dL+tlp)(transi_pa+dP)) we have:
+    #   transi_mod * L* / 2  =  shared  (the emergence flux into F and M)
+    # The correction on the flux is transi_mod/2 * dL*/dF * dF/dt
+    # so we simply correct birth_rate → birth_rate_corrected:
+
+    # ── dF/dt at zeroth order (needed for the correction) ─────────
+    shared_0   = L_star * transi_mod / 2
+    dF_dt_0    = shared_0 - deltaA * F
+
+    # ── First-order Fenichel correction on the emergence flux ─────
+    # flux_corrected = transi_mod/2 * (L* - epsilon * dL*/dF * dF/dt)
+    L_corrected = L_star - epsilon * dLstar_dF * dF_dt_0
+    L_corrected = max(L_corrected, 0.0)
+
+    shared = L_corrected * transi_mod / 2
+
+    dF = shared - deltaA * F
+    dM = shared - deltaA * 3 * M
+
+    return np.array([dF, dM])
+
+def sim_2_corrected(pop_init, days, birth, deltaA, deltaE, transi_el, transi_lp,
+                    transi_mod, death_L, c, epsilon=1.0,
+                    release_times=None, rho=0.0,
+                    n_egg=64, precip_data=precip_data, H=hum_data,
+                    reltype=1, Sterile=0):
+    """
+    epsilon : timescale separation parameter.
+               0   → recovers sim_2 exactly (pure QSSA)
+               1   → full first-order Fenichel correction
+              0..1 → interpolates between the two
+    """
+    if release_times is None:
+        release_times = np.array([])
+        rho = 0.0
+    else:
+        release_times = np.asarray(release_times, dtype=float)
+        release_times = release_times[
+            (release_times > days[0]) & (release_times < days[-1])
+        ]
+
+    y0 = np.asarray(pop_init[:2], dtype=float)
+
+    breakpoints = np.concatenate([[days[0]], release_times, [days[-1]]])
+    t_all, y_all = [], []
+
+    for k in range(len(breakpoints) - 1):
+        t_start = breakpoints[k]
+        t_end   = breakpoints[k + 1]
+
+        t_seg = days[(days >= t_start) & (days <= t_end)] if k == 0 \
+           else days[(days >  t_start) & (days <= t_end)]
+
+        if len(t_seg) == 0:
+            continue
+
+        sol = solve_ivp(
+            lambda t, y: det_model_2_corrected(
+                t, y, birth, n_egg, deltaA, deltaE,
+                transi_el, transi_lp, transi_mod,
+                death_L, c, epsilon,
+                time_data, precip_data, H,
+                release_times, rho, reltype, Sterile
+            ),
+            [t_start, t_end], y0,
+            t_eval=t_seg, method='LSODA', vectorized=False
+        )
+
+        t_all.append(sol.t)
+        y_all.append(sol.y)
+        y0 = sol.y[:, -1].copy()
+
+    t_out = np.concatenate(t_all)
+    y_out = np.hstack(y_all)
+
+    Ms_out = Ms_fun(t_out, release_times, rho, deltaA)
+    return np.vstack([y_out, Ms_out])

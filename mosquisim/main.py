@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from data import time_data, precip_data, hum_data, max_rain
 from bio import allee, competition1
-from models import Ms_fun, sim_7, sim_2
+from models import Ms_fun, sim_7, sim_2, sim_2_corrected
 from models_K import sim_K7, sim_K2
 import params
 
@@ -67,6 +67,17 @@ sol3_old = sim_2(
     release_times=release_times, rho=rho,
     precip_data=precip_data, H=hum_data,
     reltype = 3, Sterile = 0, delta = 0
+)
+
+sol3_new = sim_2_corrected(
+    pop_init=init_3, days=days,
+    birth=p["birth"], deltaA=p["deltaA"], deltaE=p["deltaE"],
+    transi_el=p["transi_el"], transi_lp=p["transi_lp"], transi_mod=p["transi_mod"],
+    death_L=p["death_L"], c=p["c"], n_egg=p["n_egg"],
+    release_times=release_times, rho=rho,
+    precip_data=precip_data, H=hum_data,
+    reltype=3, Sterile=0,
+    epsilon=0.02   # ← full correction
 )
 
 print(sol8[:, -1])
