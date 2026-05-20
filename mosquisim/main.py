@@ -54,7 +54,7 @@ sol3_new = sim_2(
     c=p["c"], n_egg=p["n_egg"],
     release_times=release_delay, rho=rho,
     precip_data=precip_data, H=hum_data,
-    reltype = 3, Sterile = 0, delta = 0
+    reltype = 1, Sterile = 0, delta = 0
 )
 
 # Old reduced model: no 7D bootstrap at first release
