@@ -69,16 +69,6 @@ sol3_old = sim_2(
     reltype = 3, Sterile = 0, delta = 0
 )
 
-sol3_new = sim_2_corrected(
-    pop_init=init_3, days=days,
-    birth=p["birth"], deltaA=p["deltaA"], deltaE=p["deltaE"],
-    transi_el=p["transi_el"], transi_lp=p["transi_lp"], transi_mod=p["transi_mod"],
-    death_L=p["death_L"], c=p["c"], n_egg=p["n_egg"],
-    release_times=release_times, rho=rho,
-    precip_data=precip_data, H=hum_data,
-    reltype=3, Sterile=0,
-    epsilon=0.02   # ← full correction
-)
 
 print(sol8[:, -1])
 print(sol3_new[:, -1])
