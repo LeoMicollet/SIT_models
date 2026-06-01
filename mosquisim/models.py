@@ -61,7 +61,7 @@ def det_model_7(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi,
 
     if type == 1:
         precip = np.interp(t, t_data, precip_data)
-        comp = competition1(6/c, 1/(c * 50), precip)
+        comp = competition1(6/c, 6/(c * 50), precip)
     elif type == 2:
         water = np.interp(t, t_data, H)
         comp = 1 / ((1 / (10 * c)) * (water / max_rain) + 1/c)
@@ -146,7 +146,7 @@ def det_model_2(t, y, birth, n_egg, deltaA, death_egg, tel, tlp, transi_mod,
     # ── Competition ───────────────────────────────────────────────
     if reltype == 1:
         precip = np.interp(t, t_data, precip_data)
-        comp = competition1(1/c, 1/(c * 50), precip)
+        comp = competition1(6/c, 6/(c * 50), precip)
     elif reltype == 2:
         water = np.interp(t, t_data, H)
         comp = 1 / ((1 / (0.2 * c)) * (water / max_rain) + 1/(5 * c))

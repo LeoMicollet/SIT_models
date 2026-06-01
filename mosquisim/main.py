@@ -42,7 +42,7 @@ sol8 = sim_7(
     c=p["c"], mu=p["mu"], n_egg=p["n_egg"],
     release_times=release_times, rho=rho,
     precip_data=precip_data, H=hum_data, 
-    type = 3, Sterile = 0
+    type = 1, Sterile = 0
 )
 
 # New reduced model: bootstrap from 7D state at first release
